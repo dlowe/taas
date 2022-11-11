@@ -36,3 +36,12 @@ I made a few assumptions, given the spec and what I know about logs:
  * simple substring filtering is sufficient
  * "reasonably performant" means something like "in the same ballpark as grep"
  * we have no realistic way to know the encodings of log files, so we'll be byte-oriented
+
+## design
+
+I think the "service" side of the design is pretty self-evident.
+
+In terms of interacting with logs efficiently and nicely:
+ * use of `mmap` lets me code as though I have the whole file in memory, leveraging the OS' page cache to ensure that the parts of the file I'm actively working on are available, without blowing up real memory usage.
+ * use of python generators/iterators lets me code as though I have the whole list of reversed log lines in memory, leveraging iterator semantics to lazily load only the lines I actually access.
+ * I made some effort to only *copy* the logfile bytes out of page cache once (when they're written to the output), but I'd need to check a few things to be 100% certain.
