@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import http.server
 import itertools
 import os
 import sys
@@ -8,15 +9,21 @@ import taas
 
 directory = "/var/log"
 os.chdir(directory)
-file = os.path.realpath(sys.argv[1])
 
-## as with chroot or docker volume shenanigans, this doesn't allow symlinks that point outside of /var/log
-assert file.startswith(os.path.realpath(directory))
+class taas_server(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        file = os.path.realpath(self.path[1:])
 
-line_count = int(sys.argv[2])
-needle = sys.argv[3].encode()
-for l in itertools.islice(filter(lambda line: line.find(needle) != -1, taas.reverse_lines(file)), line_count):
-    sys.stdout.buffer.write(l)
+        ## as with chroot or docker volume shenanigans, this doesn't allow symlinks that point outside of /var/log
+        assert file.startswith(os.path.realpath(directory))
 
-# import resource
-# print(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        self.send_response(http.server.HTTPStatus.OK)
+        self.end_headers()
+
+        line_count = 10
+        needle = b""
+        for l in itertools.islice(filter(lambda line: line.find(needle) != -1, taas.reverse_lines(file)), line_count):
+            self.wfile.write(l)
+
+httpd = http.server.HTTPServer(('0.0.0.0', 8080), taas_server)
+httpd.serve_forever()
