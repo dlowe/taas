@@ -4,26 +4,48 @@ import http.server
 import itertools
 import os
 import sys
+import urllib.parse
 
 import taas
 
 directory = "/var/log"
 os.chdir(directory)
 
+
 class taas_server(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        file = os.path.realpath(self.path[1:])
+        try:
+            url = urllib.parse.urlparse(self.path)
+            query = urllib.parse.parse_qs(url.query)
+            line_count = int(l) if (l := query.get('l')[0]) else None
+            search_string = bytes(s, 'utf-8') if (s := query.get('search_string', [None])[0]) else None
+        except Exception:
+            self.send_error(http.server.HTTPStatus.BAD_REQUEST, "Bad request")
+            return
+        else:
+            filename = os.path.realpath(url.path[1:])
 
-        ## as with chroot or docker volume shenanigans, this doesn't allow symlinks that point outside of /var/log
-        assert file.startswith(os.path.realpath(directory))
+        # as with chroot or docker volume shenanigans, this doesn't allow symlinks that point outside of /var/log
+        if not filename.startswith(os.path.realpath(directory)):
+            self.send_error(http.server.HTTPStatus.NOT_FOUND, "File not found")
+
+        try:
+            iterator = taas.reverse_lines(filename)
+        except Exception:
+            self.send_error(http.server.HTTPStatus.NOT_FOUND, "File not found")
+            return
+
+        if search_string is not None:
+            iterator = filter(lambda line: line.find(search_string) != -1, iterator)
+
+        if line_count is not None:
+            iterator = itertools.islice(iterator, line_count)
 
         self.send_response(http.server.HTTPStatus.OK)
         self.end_headers()
+        for line in iterator:
+            self.wfile.write(line)
 
-        line_count = 10
-        needle = b""
-        for l in itertools.islice(filter(lambda line: line.find(needle) != -1, taas.reverse_lines(file)), line_count):
-            self.wfile.write(l)
 
 httpd = http.server.HTTPServer(('0.0.0.0', 8080), taas_server)
 httpd.serve_forever()
